@@ -16,9 +16,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.Chap.model.User;
@@ -29,6 +31,7 @@ import com.example.Chap.utils.RestResponse;
 import com.example.Chap.utils.SecurityUtil;
 import com.example.Chap.utils.exception.IdInvalidException;
 
+import jakarta.mail.MessagingException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -38,7 +41,6 @@ import lombok.RequiredArgsConstructor;
 public class AuthController {
     private final UserService userService;
     private final AuthenticationManagerBuilder authenticationManagerBuilder;
-    private final PasswordEncoder passwordEncoder;
     private final  SecurityUtil securityUtil;
 
     @Value("${jwt.refresh.token-validity-in-seconds}")
@@ -102,9 +104,45 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@Valid @RequestBody UserDTO dto,
-    BindingResult bindingResult) throws IdInvalidException{
-        if (bindingResult.hasErrors()) {
+    public ResponseEntity<RestResponse<Object>> initiateRegistration(@Valid @RequestBody UserDTO dto) throws IdInvalidException, MessagingException {
+
+        try {
+            UserDTO userDTO = userService.initiateRegistration(dto);
+            RestResponse<Object> response = new RestResponse<>();
+            response.setStatus(HttpStatus.OK.value());
+            response.setData(userDTO);
+            response.setMessage("Verification email sent successfully");
+            return ResponseEntity.ok().body(response);
+        } catch (Exception e) {
+            RestResponse<Object> response = new RestResponse<>();
+            response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+            response.setError(e.getMessage());
+            response.setMessage("Failed to initiate registration");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    @GetMapping("/verify")
+    public ResponseEntity<RestResponse<Object>> verifyEmail(@RequestParam("token") String token) throws IdInvalidException {
+        try {
+            User user = userService.verifyEmail(token);
+            RestResponse<Object> response = new RestResponse<>();
+            response.setStatus(HttpStatus.OK.value());
+            response.setMessage("Email verified successfully. Please complete registration.");
+            response.setData(new UserDTO(user.getId(), user.getEmail(), null, null, null));
+            return ResponseEntity.ok().body(response);
+        } catch (IdInvalidException e) {
+            RestResponse<Object> response = new RestResponse<>();
+            response.setStatus(HttpStatus.BAD_REQUEST.value());
+            response.setError(e.getMessage());
+            response.setMessage("Email verification failed");
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    @PostMapping("/complete-registration")
+    public ResponseEntity<RestResponse<Object>> completeRegistration(@Valid @RequestBody UserDTO dto, @RequestParam("token") String token, BindingResult bindingResult) throws IdInvalidException {
+        if (bindingResult.hasFieldErrors("password") || bindingResult.hasFieldErrors("fullName")) {
             RestResponse<Object> response = new RestResponse<>();
             response.setStatus(HttpStatus.BAD_REQUEST.value());
             response.setError("Validation failed");
@@ -115,23 +153,20 @@ public class AuthController {
             return ResponseEntity.badRequest().body(response);
         }
 
-        boolean isEmailExist = userService.isEmailExist(dto.getEmail());
-        if(isEmailExist){
-            throw new IdInvalidException("Email:" + dto.getEmail()+ "is exist");
-        }       
-        String hashPassword = passwordEncoder.encode(dto.getPassword());
-        dto.setPassword(hashPassword);
-
         try {
-            UserDTO userDTO = userService.createUser(dto);
-            return ResponseEntity.status(201).body(userDTO);
+            UserDTO userDTO = userService.completeRegistration(dto, token);
+            RestResponse<Object> response = new RestResponse<>();
+            response.setStatus(HttpStatus.CREATED.value());
+            response.setData(userDTO);
+            response.setMessage("User registered successfully");
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (Exception e) {
-            // TODO: handle exception
-            RestResponse<Object> res = new RestResponse<>();
-            res.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-            res.setError(e.getMessage());
-            res.setMessage("Failed to register user");  
-            return ResponseEntity.status(500).body(res);      
+            RestResponse<Object> response = new RestResponse<>();
+            response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+            response.setError(e.getMessage());
+            response.setMessage("Failed to complete registration");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
+
 }

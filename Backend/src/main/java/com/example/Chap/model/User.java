@@ -26,7 +26,6 @@ public class User {
     private String email;
     private String password;
 
-    @Column(nullable = false)
     private String fullName;
     
     @Enumerated(EnumType.STRING) // LỮU DƯỚI DẠNG CHUỖI
@@ -42,4 +41,15 @@ public class User {
     @Column
     private Instant resetPasswordTokenExpiry;
     
+
+    @Column(columnDefinition = "MEDIUMTEXT")
+    private String verificationToken;
+
+    @Column
+    private Instant verificationTokenExpiry;
+
+    @Column(nullable = false)
+    private boolean isVerified = false;
+
+
 }
